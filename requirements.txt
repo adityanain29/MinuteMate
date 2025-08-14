@@ -1,0 +1,13 @@
+Flask
+flask-cors
+PyAudio
+numpy
+whisper-timestamped
+torch
+torchvision
+torchaudio
+transformers
+pytest
+pytest-mock
+python-dotenv
+python-dateutil
