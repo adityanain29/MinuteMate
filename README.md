@@ -23,7 +23,7 @@ MinuteMate is a background service that listens to live meeting audio, transcrib
 |-- index.html                  # The single-page web UI
 |-- requirements.txt            # List of Python dependencies
 |-- README.md                   # This file
-`-- prompt_log.md               # Log of NLP methods tried
+|-- prompt_log.md               # Log of NLP methods tried
 
 
 ## Installation
