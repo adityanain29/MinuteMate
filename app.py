@@ -1,10 +1,11 @@
-# app.py 
+# app.py (with Upload Functionality)
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from threading import Thread
 import os
 import uuid
+from werkzeug.utils import secure_filename # For safe filenames
 
 # --- Import our custom modules ---
 from audio_listener import AudioListener
@@ -15,6 +16,11 @@ from nlp_processor import process_transcript
 app = Flask(__name__)
 CORS(app)
 
+# --- Configuration ---
+UPLOAD_FOLDER = '.' # Save uploads in the same directory
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+ALLOWED_EXTENSIONS = {'wav', 'mp3', 'm4a', 'ogg'} # Common audio formats
+
 # --- Global State Management ---
 app_state = {
     "status": "idle",
@@ -23,7 +29,12 @@ app_state = {
 }
 listener = None
 
-# --- Processing Pipeline Function ---
+# --- Helper Functions ---
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# --- Processing Pipeline Function (no changes needed) ---
 def process_audio_pipeline(filepath, meeting_id):
     """This function runs the heavy tasks and handles final cleanup."""
     global listener
@@ -34,7 +45,7 @@ def process_audio_pipeline(filepath, meeting_id):
         print(f"Processing failed for {meeting_id}: Transcription returned no result.")
         app_state["status"] = "idle"
         app_state["minutes_data"][meeting_id] = {"error": "Transcription failed."}
-        listener = None
+        if listener: listener = None
         return
 
     processed_data = process_transcript(transcription_result["text"])
@@ -49,60 +60,15 @@ def process_audio_pipeline(filepath, meeting_id):
     }
     
     app_state["minutes_data"][meeting_id] = final_minutes
-    
-    # --- *** NEW: Automatically save results to a text file *** ---
-    try:
-        # Create a folder for minutes if it doesn't exist
-        if not os.path.exists('meeting_minutes'):
-            os.makedirs('meeting_minutes')
-            
-        # Define the filename using the meeting ID to make it unique
-        output_filename = f"meeting_minutes/minutes_{meeting_id}.txt"
-        
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            f.write("MinuteMate Meeting Notes\n")
-            f.write("=========================\n\n")
-            f.write(f"Meeting ID: {meeting_id}\n\n")
-            
-            f.write("## Summary\n")
-            f.write(f"{final_minutes['summary']}\n\n")
-            
-            f.write("## Action Items\n")
-            if final_minutes['action_items']:
-                for item in final_minutes['action_items']:
-                    f.write(f"- {item}\n")
-            else:
-                f.write("No action items detected.\n")
-            f.write("\n")
-
-            f.write("## Reminders & Dates\n")
-            if final_minutes['reminders']:
-                for item in final_minutes['reminders']:
-                    f.write(f"- {item}\n")
-            else:
-                f.write("No reminders detected.\n")
-            f.write("\n")
-            
-            f.write("## Full Transcript\n")
-            f.write("-----------------\n")
-            f.write(final_minutes['full_transcript'])
-            
-        print(f"✅ Successfully saved minutes to {output_filename}")
-
-    except Exception as e:
-        print(f"❌ Error saving minutes to file: {e}")
-    # --- End of new section ---
-    
-    # Final cleanup
     app_state["status"] = "idle"
-    listener = None
-    print(f"✅ Processing complete for {meeting_id}. Listener has been cleared.")
+    if listener: listener = None
+    print(f"✅ Processing complete for {meeting_id}.")
     
-    # Optional: Clean up the original audio file
+    # Optional: Clean up the audio file
     # if os.path.exists(filepath):
     #     os.remove(filepath)
 
-# --- API Endpoints (No changes below this line) ---
+# --- API Endpoints ---
 
 @app.route('/status', methods=['GET'])
 def get_status():
@@ -110,6 +76,41 @@ def get_status():
         "status": app_state["status"],
         "current_meeting_id": app_state["current_meeting_id"]
     })
+
+# --- File Upload Endpoint ---
+@app.route('/upload_audio', methods=['POST'])
+def upload_audio():
+    if app_state["status"] != "idle":
+        return jsonify({"error": "Application is busy."}), 409
+        
+    if 'audio_file' not in request.files:
+        return jsonify({"error": "No file part in the request."}), 400
+        
+    file = request.files['audio_file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected."}), 400
+        
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        meeting_id = str(uuid.uuid4())
+        # Use a unique name to avoid conflicts
+        saved_filename = f"upload_{meeting_id}.{filename.rsplit('.', 1)[1].lower()}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], saved_filename)
+        file.save(filepath)
+
+        # Update state and start processing
+        app_state["status"] = "processing"
+        app_state["current_meeting_id"] = meeting_id
+        pipeline_thread = Thread(target=process_audio_pipeline, args=(filepath, meeting_id))
+        pipeline_thread.start()
+
+        return jsonify({
+            "message": "File uploaded successfully. Processing has begun.",
+            "meeting_id": meeting_id
+        })
+    else:
+        return jsonify({"error": "File type not allowed."}), 400
+
 
 @app.route('/start_recording', methods=['POST'])
 def start_recording():
