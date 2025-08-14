@@ -60,6 +60,50 @@ def process_audio_pipeline(filepath, meeting_id):
     }
     
     app_state["minutes_data"][meeting_id] = final_minutes
+    
+    # --- Automatically save results to a text file ---
+    try:
+        # Create a folder for minutes if it doesn't exist
+        if not os.path.exists('meeting_minutes'):
+            os.makedirs('meeting_minutes')
+            
+        # Define the filename using the meeting ID to make it unique
+        output_filename = f"meeting_minutes/minutes_{meeting_id}.txt"
+        
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            f.write("MinuteMate Meeting Notes\n")
+            f.write("=========================\n\n")
+            f.write(f"Meeting ID: {meeting_id}\n\n")
+            
+            f.write("## Summary\n")
+            f.write(f"{final_minutes['summary']}\n\n")
+            
+            f.write("## Action Items\n")
+            if final_minutes['action_items']:
+                for item in final_minutes['action_items']:
+                    f.write(f"- {item}\n")
+            else:
+                f.write("No action items detected.\n")
+            f.write("\n")
+
+            f.write("## Reminders & Dates\n")
+            if final_minutes['reminders']:
+                for item in final_minutes['reminders']:
+                    f.write(f"- {item}\n")
+            else:
+                f.write("No reminders detected.\n")
+            f.write("\n")
+            
+            f.write("## Full Transcript\n")
+            f.write("-----------------\n")
+            f.write(final_minutes['full_transcript'])
+            
+        print(f"✅ Successfully saved minutes to {output_filename}")
+
+    except Exception as e:
+        print(f"❌ Error saving minutes to file: {e}")
+    # --- End of auto-save section ---
+    
     app_state["status"] = "idle"
     if listener: listener = None
     print(f"✅ Processing complete for {meeting_id}.")
